@@ -1,3 +1,5 @@
+[link to java spring boot syllabus](https://codeforsuccess.in/courses/java5.0)
+
 Here is the definitive Master Blueprint for the **TrustVault Escrow Platform**. 
 
 You can copy and paste this entire document into any future AI prompt. It will immediately give the AI the exact context, boundaries, and technical depth of your project, preventing it from hallucinating features or suggesting tech stacks that don't align with your goals.
