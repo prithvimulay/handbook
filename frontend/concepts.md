@@ -1,0 +1,1 @@
+[ref this vid to learn more about closure, event loops and promise](https://www.youtube.com/@theavocoder/videos)
