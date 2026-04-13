@@ -29,9 +29,15 @@ Here is the exact layout and the strict reasoning you will use in your interview
 * **The Database Setup (Correction):** You mentioned "1 db". We will run **one PostgreSQL Docker container**, but inside that container, we will create **two completely separate logical databases** (one for the Project Service, one for the Escrow Service). 
     * **The "Why":** "The golden rule of microservices is *Database-per-Service*. If the Project Service and Escrow Service share the exact same tables, they become tightly coupled. If I change a column in the Escrow table, the Project Service breaks. By giving them separate databases, they can only communicate via well-defined APIs or Kafka events."
 * **The Messaging Setup (1 Kafka Broker):**
-    * **The "Why":** "Synchronous HTTP calls between services create cascading failures (if Escrow is down, Project crashes). I implemented Apache Kafka for asynchronous event-driven communication using the Choreography Saga pattern. The Project Service simply broadcasts a `ProjectApprovedEvent` and moves on. The Escrow Service listens and processes the payment safely."
+    * **The "Why":** "Synchronous HTTP calls between services create cascading failures (if Escrow is down, Project crashes). I implemented Apache Kafka for asynchronous event-driven communication using the Choreography Saga pattern. The Project Service simply broadcasts a `ProjectSettledEvent` and moves on. The Escrow Service listens and processes the payment safely."
 * **No Caching (Redis):**
     * **The "Why":** "Premature optimization is the root of all evil. For an MVP escrow platform, data consistency and freshness are far more critical than millisecond read speeds. Serving a stale financial balance from a Redis cache could result in severe business logic errors. All reads go directly to the primary database."
+* **Idempotent Kafka Consumers:**
+    * **The "Why":** "Kafka guarantees at-least-once delivery, which means a consumer can receive the same `ProjectSettledEvent` twice during a rebalance. Without protection, this causes duplicate fund releases — a catastrophic financial bug. I implemented an idempotency layer using a `processed_events` table. Before processing any event, the consumer checks if the event ID already exists. If it does, the event is silently skipped. This is wrapped in the same `@Transactional` boundary as the fund transfer itself."
+* **CSRF Protection (Synchronizer Token Pattern):**
+    * **The "Why":** "Since JWTs are stored in `HttpOnly` cookies, the browser automatically sends them with every request — which means a malicious site could forge cross-origin requests using the user's session. I implemented Spring Security's CSRF synchronizer token pattern. The server generates a unique CSRF token per session, the React frontend reads it from a cookie and attaches it as an `X-XSRF-TOKEN` header on every state-changing request (POST, PUT, DELETE). This is a mandatory security layer in any FinTech application handling financial transactions."
+* **Saga Failure & Compensation:**
+    * **The "Why":** "In a Choreography Saga, there is no central coordinator — so what happens if the Escrow Service fails to process a `ProjectSettledEvent`? I implemented a Dead Letter Topic (DLT) in Kafka. If the consumer fails after max retries (3 attempts with exponential backoff), the event is published to `escrow-events-DLT`. A separate monitoring consumer alerts the team and the Project Service can be notified to revert the state from `SETTLED` to `IN_REVIEW` until the issue is resolved. For the MVP, this is a manual reconciliation process — in production, you would automate the compensation event."
 
 ---
 
@@ -47,7 +53,9 @@ To understand these concepts deeply and speak the language of software architect
 
 ### 3. The Step-by-Step Action Plan
 
-We will build this layer by layer. Do not write a single line of Spring Boot code until Step 3. 
+We will build this layer by layer. Ideally, do not write a single line of Spring Boot code until Step 3.
+
+> **⏱️ Time-Constrained Note:** Steps 1–2 (ERD, UML) are *design-first phases* that produce diagrams and documentation. If your 20-day deadline is tight, you can fold these into Phase 1 of the Master Blueprint (JavaProj.md) — sketching schemas and DTOs *as you build* rather than upfront. The key is that you still think through the data model before writing JPA entities, even if you don't produce formal diagrams. 
 
 **Step 1: Data & Flow Design (Visual Architecture)**
 * **Task:** Draw the Entity Relationship Diagram (ERD). Define the exact tables for the Project DB and the Escrow DB.
@@ -79,6 +87,7 @@ docker exec -it postgres_db psql -U postgres -c "CREATE DATABASE project_db; CRE
 * **Task:** Add Spring Kafka dependencies.
 * **Task:** Write the Producer config in the Project Service to emit events.
 * **Task:** Write the Consumer config in the Escrow Service to listen for those events and trigger the database updates.
+* **Task:** Implement idempotent consumer pattern (check `processed_events` table before processing). Configure Dead Letter Topic for failed events.
 
 **Step 7: The Frontend & Deployment**
 * **Task:** Scaffold the React (Vite) application. Build the specific UI flows for Employer and Freelancer.

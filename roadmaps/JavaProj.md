@@ -18,10 +18,11 @@ You can copy and paste this entire document into any future AI prompt. It will i
 The system is an event-driven microservices architecture built using a Monorepo structure. Local development commands and scripts will be executed using Windows PowerShell.
 
 * **API Gateway (Spring Cloud Gateway):** The single entry point, handling routing and CORS.
-* **Auth Service (Spring Boot + Spring Security):** Handles RBAC (Employer vs. Freelancer) and issues JWTs stored in secure `HttpOnly` cookies.
+* **Auth Service (Spring Boot + Spring Security):** Handles RBAC (Employer vs. Freelancer) and issues JWTs stored in secure `HttpOnly` cookies. Implements CSRF protection (synchronizer token pattern) since cookie-based JWT auth is vulnerable to CSRF attacks — a non-negotiable in FinTech.
 * **Project Service (Spring Boot):** Manages the Project State Machine and Employer/Freelancer matching.
 * **Escrow Service (Spring Boot):** The financial ledger. Manages virtual wallets and executes ACID-compliant fund transfers.
-* **Messaging (Apache Kafka):** Handles asynchronous communication (e.g., Project Service tells Escrow Service to release funds).
+* **Messaging (Apache Kafka):** Handles asynchronous communication (e.g., Project Service tells Escrow Service to release funds). Consumers are idempotent via a `processed_events` table to prevent duplicate processing on redelivery.
+* **Service Discovery:** Services discover each other via Docker Compose service names (e.g., `http://auth-service:8081`). No external service registry (Eureka/Consul) needed at MVP scale.
 * **Database (PostgreSQL + Flyway):** Two isolated databases (one for Project, one for Escrow) with strict schema migrations.
 * **Frontend (React + Vite):** A lightweight dashboard for Employer/Freelancer interaction.
 * **DevOps (Docker + GitHub Actions):** Containerized deployment to a Hetzner Linux VPS.
@@ -30,9 +31,11 @@ The system is an event-driven microservices architecture built using a Monorepo 
 If a feature violates these rules, it is out of scope.
 
 * **The Financial Rule:** A Freelancer cannot accept a project unless the Employer's funds are 100% locked in the Escrow Ledger (State: `FUNDED`).
+* **The Funding Flow (Synchronous):** The `DRAFT → FUNDED` transition is a **synchronous HTTP call** from the Project Service to the Escrow Service's `/api/escrow/lock` endpoint. This cannot be async because the Employer must receive immediate confirmation that their funds are locked before the project becomes visible to Freelancers. If the Escrow Service rejects the loc k (insufficient balance), the Project stays in `DRAFT`.
 * **The State Machine Strictness:** A project must strictly flow through these states: `DRAFT` $\rightarrow$ `FUNDED` $\rightarrow$ `IN_PROGRESS` $\rightarrow$ `IN_REVIEW` $\rightarrow$ `SETTLED` (or `DISPUTED`).
 * **State-Based Access Control:** An Employer cannot edit or delete a project once it leaves the `DRAFT` state without triggering a financial refund workflow.
 * **The Chat Fallback:** Real-time WebSockets are scoped out for the MVP. Communication is handled via a state-locked "Comments" API. Public when `FUNDED`, private (only Employer + Assigned Dev) when `IN_PROGRESS`.
+* **Input Validation:** All incoming DTOs are validated at the controller level using Bean Validation annotations (`@Valid`, `@NotNull`, `@Size`, `@Positive`). Invalid requests are rejected with structured `400 Bad Request` error responses before reaching the service layer.
 
 ## 4. MVP Feature List (Target-Driven Scope)
 
@@ -52,7 +55,8 @@ If a feature violates these rules, it is out of scope.
 ### Phase 3: The Distributed Glue (Days 11-14)
 * [ ] Configure Spring Kafka producer in the Project Service.
 * [ ] Configure Spring Kafka consumer in the Escrow Service.
-* [ ] **Workflow:** When Project moves to `SETTLED`, publish `ProjectApprovedEvent`. Escrow consumes this and moves money from Vault to Freelancer wallet.
+* [ ] **Workflow:** When Project moves to `SETTLED`, publish `ProjectSettledEvent`. Escrow consumes this and moves money from Vault to Freelancer wallet.
+* [ ] Implement idempotent Kafka consumer in Escrow Service using a `processed_events` table (event ID + timestamp) to prevent duplicate fund releases on message redelivery.
 
 ### Phase 4: The React UI (Days 15-18)
 * [ ] Build Login/Registration views.

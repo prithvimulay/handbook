@@ -1,6 +1,5 @@
 1. Reel Responder Bot
 
-Reel Responder Bot screenshot 1
 [View on GitHub](https://github.com/Archdiner/reel-responder-bot)
 About
 An AI-powered Instagram bot that automatically responds to reel messages from friends. Uses Apify to scrape comments from Instagram reels, then leverages OpenAI's GPT-4o-mini to generate contextual, humorous responses based on the reel's content. Includes duplicate detection to prevent repeated responses and continuous monitoring with configurable polling intervals.
